@@ -17,4 +17,15 @@ func TestEncode(t *testing.T) {
     log.Println("Compress time \t", t1.Sub(t0))
 
 	log.Println(len(a))
+
+	t0 = time.Now()
+	
+	b := Decompress(a)
+
+	t1 = time.Now()
+	log.Println("Decompress time \t", t1.Sub(t0))
+	log.Println(len(b))
+
+	s := string(b[:])
+log.Println(s)
 }

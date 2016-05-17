@@ -132,3 +132,112 @@ func Compress(str string) []byte {
 
 	return bitBuf.bytes()
 }
+
+type bitInputBuffer struct {
+	source      []byte
+	bytep       int 
+	bitp        uint 
+	currentByte byte 
+}
+
+func newBitInputBuffer(source []byte) *bitInputBuffer {
+	return &bitInputBuffer{source: source, currentByte: source[0]}
+}
+
+func (buf *bitInputBuffer) readBit() int {
+	result := int((buf.currentByte >> 7) & 1)
+	buf.currentByte = buf.currentByte << 1
+	buf.bitp++
+	
+	if buf.bitp == 8 {
+		buf.bytep++
+		if buf.bytep > len(buf.source) -1 {
+			buf.currentByte = 0
+		} else {
+			buf.currentByte = buf.source[buf.bytep]
+			buf.bitp = 0
+		}
+	}
+
+	return result
+}
+
+func Decompress(in []byte) []byte {
+	var freq [257]int
+	for i:=0; i<257; i++ {
+		freq[i] = 1
+	}
+
+	var low, current, mStep, mScale, mBuffer int
+	high  := HIGH
+	mHigh := high 
+	mLow  := low
+	total := 257
+	
+	buf   := bytes.Buffer{}
+	inbuf := newBitInputBuffer(in)
+
+	for i := 0; i<INITIAL_READ; i++ {
+		mBuffer = 2*mBuffer
+		mBuffer += inbuf.readBit()
+	}
+
+	for {
+		/* 1. Retrieve current byte */
+		mStep = (mHigh - mLow + 1) / total
+		value := (mBuffer - mLow) / mStep
+		low = 0
+		for current=0; current<256 && low+freq[current] <= value; current++ {
+			low += freq[current]
+		}
+
+		if current==256 {
+			break
+		}
+
+		buf.WriteByte(byte(current))
+		high = low + freq[current]
+
+		/* 2. Update the decoder */
+		mHigh = mLow + mStep * high - 1; // interval open at the top => -1
+
+		/* Update lower bound */
+		mLow = mLow + mStep * low;		
+
+		for {
+			if mHigh < HALF  {
+				mLow = mLow * 2
+				mHigh = (mHigh * 2) + 1
+				mBuffer = (2 * mBuffer)
+			} else if mLow >= HALF {
+				mLow = 2 * ( mLow - HALF )
+				mHigh = 2 * ( mHigh - HALF ) + 1
+				mBuffer = 2 * ( mBuffer - HALF )
+			} else {
+				break
+			}
+
+			mBuffer += inbuf.readBit()
+			mScale = 0
+		}
+
+		/* e3 mapping */
+		for {
+			if !( ( FIRST_QUARTER <= mLow ) && ( mHigh < THIRD_QUARTER ) ) {
+				break
+			}
+
+			mScale++
+			mLow = 2 * ( mLow - FIRST_QUARTER )
+			mHigh = 2 * ( mHigh - FIRST_QUARTER ) + 1
+			mBuffer = 2 * ( mBuffer - FIRST_QUARTER ) 
+			mBuffer += inbuf.readBit()
+		}
+		
+		/* 3. Update frequency table */
+		freq[current]+=1
+		total+=1
+	}
+
+	return buf.Bytes()
+}
